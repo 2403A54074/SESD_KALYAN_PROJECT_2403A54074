@@ -226,7 +226,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 {state.settings.displayName}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                {state.settings.role}
+                {state.settings.email || state.settings.role}
               </p>
             </div>
           </button>

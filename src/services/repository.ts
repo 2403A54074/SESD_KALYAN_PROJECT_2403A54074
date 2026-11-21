@@ -63,6 +63,7 @@ export interface SupabaseProfileRow {
   role: string;
   organization: string;
   avatar_preset: AvatarPreset;
+  avatar_url?: string | null;
   custom_avatar_data_url?: string | null;
   cover_preset: ProfileCoverPreset;
   preferences?: Record<string, unknown> | null;
@@ -136,12 +137,15 @@ export class SystemRepository {
     email: string;
     fallbackName: string;
     fallbackOrganization?: string;
+    fallbackAvatarUrl?: string;
   }): Promise<SupabaseProfileRow | null> {
     if (!isSupabaseConfigured || !supabase) return null;
 
     const { data: existing, error: fetchErr } = await supabase
       .from('profiles')
-      .select('id, email, display_name, role, organization, avatar_preset, custom_avatar_data_url, cover_preset, preferences')
+      .select(
+        'id, email, display_name, role, organization, avatar_preset, avatar_url, custom_avatar_data_url, cover_preset, preferences'
+      )
       .eq('id', params.id)
       .maybeSingle();
 
@@ -151,8 +155,31 @@ export class SystemRepository {
     }
 
     if (existing) {
-      return existing as SupabaseProfileRow;
+      const row = existing as SupabaseProfileRow;
+      // Backfill Google avatar URL if user logged in via Google and doesn't have a saved avatar_url yet
+      if (params.fallbackAvatarUrl && !row.avatar_url) {
+        const nextPreset: AvatarPreset =
+          row.avatar_preset === 'unknown' && !row.custom_avatar_data_url
+            ? 'google'
+            : row.avatar_preset;
+        await supabase
+          .from('profiles')
+          .update({
+            avatar_url: params.fallbackAvatarUrl,
+            avatar_preset: nextPreset,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', params.id);
+        return {
+          ...row,
+          avatar_url: params.fallbackAvatarUrl,
+          avatar_preset: nextPreset,
+        };
+      }
+      return row;
     }
+
+    const initialPreset: AvatarPreset = params.fallbackAvatarUrl ? 'google' : 'unknown';
 
     const { data: inserted, error: insertErr } = await supabase
       .from('profiles')
@@ -163,12 +190,15 @@ export class SystemRepository {
           display_name: params.fallbackName,
           role: 'Custodian Operator',
           organization: params.fallbackOrganization || '',
-          avatar_preset: 'unknown',
+          avatar_preset: initialPreset,
+          avatar_url: params.fallbackAvatarUrl || null,
           cover_preset: 'navy-mesh',
         },
         { onConflict: 'id' }
       )
-      .select('id, email, display_name, role, organization, avatar_preset, custom_avatar_data_url, cover_preset, preferences')
+      .select(
+        'id, email, display_name, role, organization, avatar_preset, avatar_url, custom_avatar_data_url, cover_preset, preferences'
+      )
       .single();
 
     if (insertErr) {
@@ -191,6 +221,7 @@ export class SystemRepository {
           role: state.settings.role,
           organization: state.settings.organization,
           avatar_preset: state.settings.avatarPreset,
+          avatar_url: state.settings.avatarUrl || null,
           custom_avatar_data_url: state.settings.customAvatarDataUrl || null,
           cover_preset: state.settings.coverPreset,
           preferences: state.settings.personalization as unknown as Record<string, unknown>,

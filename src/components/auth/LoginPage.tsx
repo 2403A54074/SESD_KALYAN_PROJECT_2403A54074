@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
+  CheckCircle2,
   Eye,
   EyeOff,
   Fingerprint,
@@ -20,60 +21,6 @@ import {
 import { useSystem } from '../../context/SystemContext';
 import { isSupabaseConfigured } from '../../lib/supabaseClient';
 
-type OAuthChoice = 'google' | 'facebook' | 'github' | 'azure';
-
-const OAUTH_PROVIDERS: {
-  id: OAuthChoice;
-  label: string;
-  renderIcon: () => React.ReactNode;
-}[] = [
-  {
-    id: 'google',
-    label: 'Google',
-    renderIcon: () => (
-      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden="true">
-        <path
-          fill="#EA4335"
-          d="M12 10.2v3.9h5.4c-.2 1.2-1.4 3.6-5.4 3.6-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.1 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'facebook',
-    label: 'Facebook',
-    renderIcon: () => (
-      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden="true">
-        <path
-          fill="#1877F2"
-          d="M22 12a10 10 0 1 0-11.6 9.9v-7h-2.5V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4H15c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'github',
-    label: 'GitHub',
-    renderIcon: () => (
-      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 fill-current" aria-hidden="true">
-        <path d="M12 2C6.5 2 2 6.5 2 12c0 4.4 2.9 8.2 6.8 9.5.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 3 .8.1-.6.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-4.9 0-1.1.4-2 1-2.7-.1-.2-.4-1.3.1-2.6 0 0 .8-.3 2.7 1 .8-.2 1.7-.3 2.5-.3s1.7.1 2.5.3c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.4.1 2.6.6.7 1 1.6 1 2.7 0 3.8-2.4 4.6-4.6 4.9.4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 22 12c0-5.5-4.5-10-10-10z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'azure',
-    label: 'Microsoft',
-    renderIcon: () => (
-      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden="true">
-        <path fill="#F25022" d="M3 3h8.5v8.5H3z" />
-        <path fill="#7FBA00" d="M12.5 3H21v8.5h-8.5z" />
-        <path fill="#00A4EF" d="M3 12.5h8.5V21H3z" />
-        <path fill="#FFB900" d="M12.5 12.5H21V21h-8.5z" />
-      </svg>
-    ),
-  },
-];
-
 export const LoginPage: React.FC = () => {
   const {
     state,
@@ -83,7 +30,7 @@ export const LoginPage: React.FC = () => {
     registerLocal,
     loginWithSupabase,
     signUpWithSupabase,
-    signInWithOAuthProvider,
+    signInWithGoogle,
     sendPasswordReset,
     updatePassword,
     cancelPasswordRecovery,
@@ -103,27 +50,28 @@ export const LoginPage: React.FC = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [oauthBusy, setOauthBusy] = useState<OAuthChoice | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured && !hasRegisteredUsers) {
       setMode('register');
-    } else if (mode === 'register' && isSupabaseConfigured) {
+    } else if (isSupabaseConfigured && mode === 'register') {
       setMode('login');
     }
   }, [hasRegisteredUsers]);
 
-  const handleOAuthClick = async (choice: OAuthChoice) => {
+  const handleGoogleContinue = async () => {
+    if (googleBusy || submitting) return;
     setErrorMsg(null);
     setInfoMsg(null);
-    setOauthBusy(choice);
+    setGoogleBusy(true);
     try {
-      await signInWithOAuthProvider(choice);
+      await signInWithGoogle();
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'OAuth sign-in failed.');
-      setOauthBusy(null);
+      setErrorMsg(err instanceof Error ? err.message : 'Google sign-in failed.');
+      setGoogleBusy(false);
     }
   };
 
@@ -156,7 +104,7 @@ export const LoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || googleBusy) return;
     setErrorMsg(null);
     setInfoMsg(null);
     setSubmitting(true);
@@ -165,7 +113,7 @@ export const LoginPage: React.FC = () => {
       if (mode === 'reset') {
         await sendPasswordReset(email.trim());
         setInfoMsg(
-          `Password recovery email dispatched to ${email.trim()}. Open the link in your inbox to set a new password.`
+          `Password reset link sent to ${email.trim()}. Check your inbox and open the link to set a new password.`
         );
         return;
       }
@@ -181,8 +129,11 @@ export const LoginPage: React.FC = () => {
             organization: organization.trim(),
           });
           if (res.requiresConfirmation) {
-            setInfoMsg('Check your email to confirm your Supabase account, then sign in.');
+            setInfoMsg(
+              `Verification email sent to ${email.trim()}. Please verify your email address before signing in.`
+            );
             setMode('login');
+            setPassword('');
           }
         }
       } else {
@@ -244,7 +195,7 @@ export const LoginPage: React.FC = () => {
                 Digital Document Watermarking &amp; Ephemeral SMTP–Webhook Relay
               </h1>
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-lg">
-                Sign in to access your private document custody workspace, SHA-256 verification ledger, recipient-specific PDF watermarking, and ephemeral SMTP–webhook relay studio.
+                Sign in with Google or Email to access your private document custody workspace, SHA-256 verification ledger, recipient-specific PDF watermarking, and webhook relay tools.
               </p>
             </div>
 
@@ -290,7 +241,7 @@ export const LoginPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Column: Auth Card */}
+          {/* Right Column: Clean 2-Method Auth Card */}
           <div className="lg:col-span-6">
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 sm:p-8 space-y-5">
               {passwordRecoveryMode ? (
@@ -302,7 +253,7 @@ export const LoginPage: React.FC = () => {
                     </h2>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Your recovery token was verified. Choose a new password (minimum 8 characters) to continue to your workspace.
+                    Your recovery session is verified. Enter a new password (minimum 8 characters) to continue.
                   </p>
                   <div>
                     <label
@@ -380,7 +331,51 @@ export const LoginPage: React.FC = () => {
                 </form>
               ) : (
                 <>
-                  {/* Mode Switcher */}
+                  {/* Method 1: Continue with Google */}
+                  {mode !== 'reset' && (
+                    <div className="space-y-3">
+                      <button
+                        type="button"
+                        disabled={googleBusy || submitting}
+                        onClick={() => void handleGoogleContinue()}
+                        className="w-full inline-flex items-center justify-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800/80 disabled:opacity-50 px-4 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 transition-colors"
+                      >
+                        {googleBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-cyan-500" />
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden="true">
+                            <path
+                              fill="#4285F4"
+                              d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                            />
+                            <path
+                              fill="#34A853"
+                              d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24z"
+                            />
+                            <path
+                              fill="#FBBC05"
+                              d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14z"
+                            />
+                            <path
+                              fill="#EA4335"
+                              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96z"
+                            />
+                          </svg>
+                        )}
+                        <span>Continue with Google</span>
+                      </button>
+
+                      <div className="relative flex items-center py-1">
+                        <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
+                        <span className="mx-3 text-[11px] font-mono text-slate-400 uppercase">
+                          or continue with email
+                        </span>
+                        <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Method 2: Continue with Email (Sign In / Sign Up / Reset Switcher) */}
                   {mode !== 'reset' ? (
                     <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 p-1">
                       <button
@@ -439,49 +434,18 @@ export const LoginPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* OAuth Providers Grid */}
-                  {mode !== 'reset' && (
-                    <div className="space-y-2.5">
-                      <div className="grid grid-cols-2 gap-2">
-                        {OAUTH_PROVIDERS.map((oauth) => (
-                          <button
-                            key={oauth.id}
-                            type="button"
-                            disabled={oauthBusy !== null || submitting}
-                            onClick={() => void handleOAuthClick(oauth.id)}
-                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800/80 disabled:opacity-50 px-3 py-2 text-xs font-medium text-slate-800 dark:text-slate-100 transition-colors"
-                          >
-                            {oauthBusy === oauth.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-cyan-500" />
-                            ) : (
-                              oauth.renderIcon()
-                            )}
-                            <span>{oauth.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="relative flex items-center py-1">
-                        <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
-                        <span className="mx-3 text-[11px] font-mono text-slate-400 uppercase">
-                          or with email
-                        </span>
-                        <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
-                      </div>
-                    </div>
-                  )}
-
                   {!isSupabaseConfigured && !hasRegisteredUsers && mode === 'register' && (
                     <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-800 dark:text-cyan-200 flex items-start gap-2">
                       <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-cyan-600 dark:text-cyan-400" />
                       <span>
-                        First-run local setup: create your account below or configure VITE_SUPABASE_URL &amp; VITE_SUPABASE_ANON_KEY for cloud auth and OAuth.
+                        Create your email account below to access your private workspace (configure VITE_SUPABASE_URL &amp; VITE_SUPABASE_ANON_KEY to enable cloud Supabase &amp; Google sign-in).
                       </span>
                     </div>
                   )}
 
                   {isSupabaseConfigured && mode !== 'reset' && (
                     <div className="flex items-center justify-between text-xs border-b border-slate-100 dark:border-slate-800 pb-3">
-                      <span className="text-slate-500 dark:text-slate-400">Auth Backend</span>
+                      <span className="text-slate-500 dark:text-slate-400">Email Auth Mode</span>
                       <div className="flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 p-0.5">
                         <button
                           type="button"
@@ -517,7 +481,7 @@ export const LoginPage: React.FC = () => {
                             htmlFor="auth-display-name"
                             className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
                           >
-                            Display Name
+                            Full Name
                           </label>
                           <input
                             id="auth-display-name"
@@ -635,14 +599,15 @@ export const LoginPage: React.FC = () => {
                     )}
 
                     {infoMsg && (
-                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
-                        {infoMsg}
+                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-start gap-2 text-xs text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                        <span>{infoMsg}</span>
                       </div>
                     )}
 
                     <button
                       type="submit"
-                      disabled={submitting || oauthBusy !== null}
+                      disabled={submitting || googleBusy}
                       className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-4 py-2.5 text-xs font-semibold text-white transition-colors"
                     >
                       {submitting ? (
@@ -661,8 +626,8 @@ export const LoginPage: React.FC = () => {
                           {mode === 'reset'
                             ? 'Send Password Reset Email'
                             : mode === 'login'
-                              ? 'Sign In to Workspace'
-                              : 'Create Account'}
+                              ? 'Continue with Email'
+                              : 'Create Email Account'}
                         </span>
                       )}
                     </button>
@@ -670,8 +635,8 @@ export const LoginPage: React.FC = () => {
 
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center pt-2 border-t border-slate-100 dark:border-slate-800">
                     {isSupabaseConfigured
-                      ? 'Protected by Supabase Auth, Row Level Security (RLS), and per-user data isolation.'
-                      : 'Local Server Session active (salted scrypt + HMAC tokens). Configure Supabase Auth env vars for OAuth & email reset.'}
+                      ? 'Secured via Supabase Auth (Google & Email) with per-user Row Level Security.'
+                      : 'Local Server Session active. Configure VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY for Google Auth & email recovery.'}
                   </p>
                 </>
               )}

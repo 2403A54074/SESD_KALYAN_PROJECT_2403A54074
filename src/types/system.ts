@@ -27,6 +27,7 @@ export interface AuthUser {
   displayName: string;
   role: string;
   organization: string;
+  avatarUrl?: string;
   provider: 'local' | 'supabase';
 }
 
@@ -238,7 +239,7 @@ export type DashboardLayoutMode = 'standard' | 'compact' | 'focus';
 export type AnimationIntensity = 'subtle' | 'expressive' | 'none';
 export type FontSizeScale = 'sm' | 'md' | 'lg';
 export type LanguageCode = 'en' | 'hi' | 'es';
-export type AvatarPreset = 'unknown' | 'custom' | 'initials' | 'cyan-crest' | 'violet-crest' | 'portrait';
+export type AvatarPreset = 'unknown' | 'google' | 'custom' | 'initials' | 'cyan-crest' | 'violet-crest' | 'portrait';
 export type ProfileCoverPreset = 'navy-mesh' | 'cyan-horizon' | 'violet-aurora' | 'charcoal-grid';
 
 export interface DashboardWidgetsConfig {
@@ -286,6 +287,7 @@ export interface UserProfileSettings {
   role: string;
   organization: string;
   avatarPreset: AvatarPreset;
+  avatarUrl?: string;
   customAvatarDataUrl?: string;
   coverPreset: ProfileCoverPreset;
   theme: 'dark' | 'light'; // resolved theme for compatibility

@@ -73,11 +73,13 @@ export const AvatarDisplay: React.FC<{
   sizeClass?: string;
   textSizeClass?: string;
 }> = ({ sizeClass = 'h-16 w-16', textSizeClass = 'text-lg' }) => {
-  const { state } = useSystem();
+  const { state, authUser } = useSystem();
   const [portraitFailed, setPortraitFailed] = useState(false);
+  const [googleAvatarFailed, setGoogleAvatarFailed] = useState(false);
 
   if (!state) return null;
-  const { avatarPreset, customAvatarDataUrl, displayName } = state.settings;
+  const { avatarPreset, avatarUrl, customAvatarDataUrl, displayName } = state.settings;
+  const resolvedGoogleUrl = avatarUrl || authUser?.avatarUrl;
 
   const initials = displayName
     .split(' ')
@@ -92,6 +94,18 @@ export const AvatarDisplay: React.FC<{
       <img
         src={customAvatarDataUrl}
         alt={displayName}
+        className={`${sizeClass} rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0`}
+      />
+    );
+  }
+
+  if (avatarPreset === 'google' && resolvedGoogleUrl && !googleAvatarFailed) {
+    return (
+      <img
+        src={resolvedGoogleUrl}
+        alt={displayName}
+        referrerPolicy="no-referrer"
+        onError={() => setGoogleAvatarFailed(true)}
         className={`${sizeClass} rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0`}
       />
     );
@@ -330,11 +344,20 @@ export const ProfileSettingsModule: React.FC = () => {
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                 {state.settings.displayName}
               </h2>
+              <p className="text-xs font-mono text-slate-600 dark:text-slate-300">
+                {state.settings.email || authUser?.email || 'No email set'}
+              </p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {state.settings.role} · {state.settings.organization}
+                {state.settings.role}
+                {state.settings.organization ? ` · ${state.settings.organization}` : ''}
               </p>
               <p className="text-[11px] font-mono text-slate-400 mt-0.5">
-                DP Mode: {state.settings.avatarPreset === 'unknown' ? 'Default (Unknown)' : state.settings.avatarPreset}
+                DP Mode:{' '}
+                {state.settings.avatarPreset === 'unknown'
+                  ? 'Default (Unknown)'
+                  : state.settings.avatarPreset === 'google'
+                    ? 'Google Profile Photo'
+                    : state.settings.avatarPreset}
               </p>
             </div>
           </div>
@@ -369,6 +392,9 @@ export const ProfileSettingsModule: React.FC = () => {
               className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200"
             >
               <option value="unknown">Unknown (Default)</option>
+              {(state.settings.avatarUrl || authUser?.avatarUrl) && (
+                <option value="google">Google Profile Photo</option>
+              )}
               {state.settings.customAvatarDataUrl && <option value="custom">Uploaded Custom DP</option>}
               <option value="initials">Monogram Initials</option>
               <option value="cyan-crest">Cyan Crest</option>

@@ -1,6 +1,6 @@
 -- Supabase PostgreSQL Schema for:
 -- Digital Document Watermarking & Ephemeral SMTP–Webhook Relay System
--- Designed for Supabase Auth (Email/Password + OAuth) & Strict Per-User Row Level Security (RLS)
+-- Designed for Supabase Auth (Google OAuth + Email/Password) & Strict Per-User Row Level Security (RLS)
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   role TEXT NOT NULL DEFAULT 'Custodian Operator',
   organization TEXT NOT NULL DEFAULT '',
   avatar_preset TEXT NOT NULL DEFAULT 'unknown',
+  avatar_url TEXT,
   custom_avatar_data_url TEXT,
   cover_preset TEXT NOT NULL DEFAULT 'navy-mesh',
   preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -19,15 +20,24 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Automatically provision a profile row whenever a new user signs up via Email or OAuth
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
+-- Automatically provision a profile row whenever a new user signs up via Email or Google OAuth
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_avatar_url TEXT;
 BEGIN
-  INSERT INTO public.profiles (id, email, display_name, role, organization, avatar_preset)
+  v_avatar_url := COALESCE(
+    NULLIF(NEW.raw_user_meta_data ->> 'avatar_url', ''),
+    NULLIF(NEW.raw_user_meta_data ->> 'picture', '')
+  );
+
+  INSERT INTO public.profiles (id, email, display_name, role, organization, avatar_preset, avatar_url)
   VALUES (
     NEW.id,
     COALESCE(NEW.email, ''),
@@ -35,12 +45,12 @@ BEGIN
       NULLIF(NEW.raw_user_meta_data ->> 'display_name', ''),
       NULLIF(NEW.raw_user_meta_data ->> 'full_name', ''),
       NULLIF(NEW.raw_user_meta_data ->> 'name', ''),
-      NULLIF(NEW.raw_user_meta_data ->> 'user_name', ''),
       SPLIT_PART(COALESCE(NEW.email, 'user@workspace'), '@', 1)
     ),
     'Custodian Operator',
     COALESCE(NEW.raw_user_meta_data ->> 'organization', ''),
-    'unknown'
+    CASE WHEN v_avatar_url IS NOT NULL THEN 'google' ELSE 'unknown' END,
+    v_avatar_url
   )
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;

@@ -154,7 +154,7 @@ interface SystemContextValue {
     password: string;
     organization?: string;
   }) => Promise<{ requiresConfirmation: boolean }>;
-  signInWithOAuthProvider: (provider: 'google' | 'facebook' | 'github' | 'azure') => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   updatePassword: (params: { newPassword: string; currentPassword?: string }) => Promise<void>;
   cancelPasswordRecovery: () => void;
@@ -207,6 +207,18 @@ function pathnameToModule(pathname: string): ModuleId {
   return matched ? matched[0] : 'dashboard';
 }
 
+function sanitizeHttpsUrl(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function mapSupabaseUser(u: {
   id: string;
   email?: string;
@@ -217,15 +229,16 @@ function mapSupabaseUser(u: {
     (typeof meta.display_name === 'string' && meta.display_name) ||
     (typeof meta.full_name === 'string' && meta.full_name) ||
     (typeof meta.name === 'string' && meta.name) ||
-    (typeof meta.user_name === 'string' && meta.user_name) ||
     u.email?.split('@')[0] ||
     'Workspace User';
+  const avatarUrl = sanitizeHttpsUrl(meta.avatar_url) || sanitizeHttpsUrl(meta.picture);
   return {
     id: u.id,
     email: u.email || '',
     displayName: rawName.trim() || 'Workspace User',
     role: (typeof meta.role === 'string' && meta.role) || 'Custodian Operator',
     organization: (typeof meta.organization === 'string' && meta.organization) || '',
+    avatarUrl,
     provider: 'supabase',
   };
 }
@@ -364,6 +377,7 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         email: user.email || loaded.settings.email,
         role: user.role || loaded.settings.role,
         organization: user.organization || loaded.settings.organization,
+        avatarUrl: user.avatarUrl || loaded.settings.avatarUrl,
       },
     };
 
@@ -373,14 +387,17 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         email: user.email,
         fallbackName: user.displayName,
         fallbackOrganization: user.organization,
+        fallbackAvatarUrl: user.avatarUrl,
       });
       if (profile) {
+        const resolvedAvatarUrl = sanitizeHttpsUrl(profile.avatar_url) || user.avatarUrl;
         resolvedUser = {
           ...user,
           displayName: profile.display_name || user.displayName,
           email: profile.email || user.email,
           role: profile.role || user.role,
           organization: profile.organization ?? user.organization,
+          avatarUrl: resolvedAvatarUrl,
         };
         const savedPrefs =
           profile.preferences && typeof profile.preferences === 'object'
@@ -394,7 +411,10 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             email: resolvedUser.email,
             role: resolvedUser.role,
             organization: resolvedUser.organization,
-            avatarPreset: profile.avatar_preset || nextState.settings.avatarPreset || 'unknown',
+            avatarPreset:
+              profile.avatar_preset ||
+              (resolvedAvatarUrl ? 'google' : nextState.settings.avatarPreset || 'unknown'),
+            avatarUrl: resolvedAvatarUrl,
             customAvatarDataUrl:
               profile.custom_avatar_data_url || nextState.settings.customAvatarDataUrl,
             coverPreset: profile.cover_preset || nextState.settings.coverPreset || 'navy-mesh',
@@ -1933,26 +1953,22 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [hydrateWorkspaceForUser, setActiveModule]
   );
 
-  const signInWithOAuthProvider = useCallback(
-    async (provider: 'google' | 'facebook' | 'github' | 'azure') => {
-      if (!isSupabaseConfigured || !supabase) {
-        throw new Error(
-          'OAuth sign-in requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY with the provider enabled in Supabase Authentication.'
-        );
-      }
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: window.location.origin,
-          ...(provider === 'azure' ? { scopes: 'email profile openid' } : {}),
-        },
-      });
-      if (error) {
-        throw new Error(error.message);
-      }
-    },
-    []
-  );
+  const signInWithGoogle = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error(
+        'Google sign-in requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY with the Google provider enabled in Supabase Authentication.'
+      );
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    if (error) {
+      throw new Error(error.message);
+    }
+  }, []);
 
   const sendPasswordReset = useCallback(
     async (email: string) => {
@@ -2122,7 +2138,7 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         registerLocal,
         loginWithSupabase,
         signUpWithSupabase,
-        signInWithOAuthProvider,
+        signInWithGoogle,
         sendPasswordReset,
         updatePassword,
         cancelPasswordRecovery,
