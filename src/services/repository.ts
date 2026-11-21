@@ -7,10 +7,14 @@ import {
   ensureSeedBinariesHydrated,
 } from '../data/seedData';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
-import type { SystemState } from '../types/system';
+import type { AuthUser, AvatarPreset, ProfileCoverPreset, SystemState } from '../types/system';
 import { clearPdfBinaries } from '../utils/cryptoPdf';
 
-const STORAGE_KEY = 'rw_smtp_relay_system_state_v1';
+const STORAGE_KEY_PREFIX = 'rw_smtp_relay_state_v2_';
+
+function storageKeyForUser(userId?: string | null): string {
+  return `${STORAGE_KEY_PREFIX}${userId || 'guest'}`;
+}
 
 function migrateState(rawState: SystemState): SystemState {
   const settings = rawState.settings || createEmptyState('dark').settings;
@@ -52,10 +56,44 @@ function migrateState(rawState: SystemState): SystemState {
   };
 }
 
+export interface SupabaseProfileRow {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  organization: string;
+  avatar_preset: AvatarPreset;
+  custom_avatar_data_url?: string | null;
+  cover_preset: ProfileCoverPreset;
+  preferences?: Record<string, unknown> | null;
+}
+
 export class SystemRepository {
-  async loadState(): Promise<SystemState> {
+  async loadStateForUser(user?: AuthUser | null): Promise<SystemState> {
+    const key = storageKeyForUser(user?.id);
+
+    // When Supabase is configured and user is authenticated via Supabase, prefer their private RLS-protected row
+    if (isSupabaseConfigured && supabase && user?.provider === 'supabase') {
+      try {
+        const { data: wsRow } = await supabase
+          .from('user_workspaces')
+          .select('state_json')
+          .eq('owner_id', user.id)
+          .maybeSingle();
+
+        if (wsRow?.state_json && typeof wsRow.state_json === 'object') {
+          const parsed = migrateState(wsRow.state_json as SystemState);
+          await ensureSeedBinariesHydrated(parsed);
+          localStorage.setItem(key, JSON.stringify(parsed));
+          return parsed;
+        }
+      } catch (err) {
+        console.warn('Supabase workspace table lookup fell back to user-scoped local store:', err);
+      }
+    }
+
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = migrateState(JSON.parse(raw) as SystemState);
         await ensureSeedBinariesHydrated(parsed);
@@ -65,26 +103,123 @@ export class SystemRepository {
       console.warn('Failed to parse persisted system state, initializing fresh seed:', err);
     }
 
-    const seeded = await buildSeededSystemState('dark');
-    await this.saveState(seeded);
+    const seeded = await buildSeededSystemState('dark', user || undefined);
+    await this.saveState(seeded, user);
     return seeded;
   }
 
-  async saveState(state: SystemState): Promise<void> {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  async saveState(state: SystemState, user?: AuthUser | null): Promise<void> {
+    const key = storageKeyForUser(user?.id);
+    localStorage.setItem(key, JSON.stringify(state));
+
+    if (isSupabaseConfigured && supabase && user?.provider === 'supabase') {
+      void supabase
+        .from('user_workspaces')
+        .upsert(
+          {
+            owner_id: user.id,
+            state_json: state,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'owner_id' }
+        )
+        .then(({ error }) => {
+          if (error) {
+            console.warn('Supabase workspace sync notice:', error.message);
+          }
+        });
+    }
   }
 
-  async resetToDemoSeed(currentTheme: 'dark' | 'light'): Promise<SystemState> {
+  async fetchOrCreateSupabaseProfile(params: {
+    id: string;
+    email: string;
+    fallbackName: string;
+    fallbackOrganization?: string;
+  }): Promise<SupabaseProfileRow | null> {
+    if (!isSupabaseConfigured || !supabase) return null;
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('profiles')
+      .select('id, email, display_name, role, organization, avatar_preset, custom_avatar_data_url, cover_preset, preferences')
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.warn('Profile table lookup notice:', fetchErr.message);
+      return null;
+    }
+
+    if (existing) {
+      return existing as SupabaseProfileRow;
+    }
+
+    const { data: inserted, error: insertErr } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: params.id,
+          email: params.email,
+          display_name: params.fallbackName,
+          role: 'Custodian Operator',
+          organization: params.fallbackOrganization || '',
+          avatar_preset: 'unknown',
+          cover_preset: 'navy-mesh',
+        },
+        { onConflict: 'id' }
+      )
+      .select('id, email, display_name, role, organization, avatar_preset, custom_avatar_data_url, cover_preset, preferences')
+      .single();
+
+    if (insertErr) {
+      console.warn('Profile creation notice:', insertErr.message);
+      return null;
+    }
+
+    return inserted as SupabaseProfileRow;
+  }
+
+  async syncSupabaseProfile(userId: string, state: SystemState): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { error } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: userId,
+          email: state.settings.email,
+          display_name: state.settings.displayName,
+          role: state.settings.role,
+          organization: state.settings.organization,
+          avatar_preset: state.settings.avatarPreset,
+          custom_avatar_data_url: state.settings.customAvatarDataUrl || null,
+          cover_preset: state.settings.coverPreset,
+          preferences: state.settings.personalization as unknown as Record<string, unknown>,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    if (error) {
+      console.warn('Supabase profile update notice:', error.message);
+    }
+  }
+
+  async resetToDemoSeed(currentTheme: 'dark' | 'light', user?: AuthUser | null): Promise<SystemState> {
     clearPdfBinaries();
-    const seeded = await buildSeededSystemState(currentTheme);
-    await this.saveState(seeded);
+    const seeded = await buildSeededSystemState(currentTheme, user || undefined);
+    await this.saveState(seeded, user);
     return seeded;
   }
 
-  async clearAllData(currentTheme: 'dark' | 'light'): Promise<SystemState> {
+  async clearAllData(currentTheme: 'dark' | 'light', user?: AuthUser | null): Promise<SystemState> {
     clearPdfBinaries();
     const empty = createEmptyState(currentTheme);
-    await this.saveState(empty);
+    if (user) {
+      empty.settings.displayName = user.displayName;
+      empty.settings.email = user.email;
+      empty.settings.role = user.role;
+      empty.settings.organization = user.organization;
+    }
+    await this.saveState(empty, user);
     return empty;
   }
 
@@ -93,15 +228,16 @@ export class SystemRepository {
     if (!isSupabaseConfigured || !supabase) {
       return {
         connected: false,
-        message: 'Running in Local Browser Repository mode. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect PostgreSQL.',
+        message:
+          'Running in Local Browser Repository mode. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect PostgreSQL.',
       };
     }
     try {
-      const { error } = await supabase.from('documents').select('id', { count: 'exact', head: true });
+      const { error } = await supabase.from('profiles').select('id', { count: 'exact', head: true });
       if (error) {
         return { connected: false, message: `Supabase query check returned: ${error.message}` };
       }
-      return { connected: true, message: 'Connected to Supabase PostgreSQL schema.' };
+      return { connected: true, message: 'Connected to Supabase PostgreSQL schema with RLS active.' };
     } catch (err) {
       return {
         connected: false,

@@ -27,7 +27,7 @@ const DICTIONARIES: Record<LanguageCode, TranslationDictionary> = {
     focusMode: 'Focus Mode',
     exitFocusMode: 'Exit Focus',
     watermarkCta: 'Watermark PDF',
-    footerCredit: 'Developed by N. Kalyan Reddy',
+    footerCredit: 'Developed by Kalyan Reddy',
     greetingPrefix: 'Workspace',
   },
   hi: {
@@ -41,7 +41,7 @@ const DICTIONARIES: Record<LanguageCode, TranslationDictionary> = {
     focusMode: 'फोकस मोड',
     exitFocusMode: 'फोकस बंद करें',
     watermarkCta: 'PDF वॉटरमार्क',
-    footerCredit: 'Developed by N. Kalyan Reddy',
+    footerCredit: 'Developed by Kalyan Reddy',
     greetingPrefix: 'कार्यक्षेत्र',
   },
   es: {
@@ -55,7 +55,7 @@ const DICTIONARIES: Record<LanguageCode, TranslationDictionary> = {
     focusMode: 'Modo Enfoque',
     exitFocusMode: 'Salir Enfoque',
     watermarkCta: 'Marcar PDF',
-    footerCredit: 'Developed by N. Kalyan Reddy',
+    footerCredit: 'Developed by Kalyan Reddy',
     greetingPrefix: 'Espacio',
   },
 };

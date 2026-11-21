@@ -1,7 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 import { systemRepository } from '../services/repository';
 import type {
   ActivityLogEntry,
+  AuthUser,
   CentralPipelineEvent,
   DocumentClassification,
   EphemeralInbox,
@@ -132,6 +134,31 @@ interface SystemContextValue {
   setNotificationsOpen: (open: boolean) => void;
   tourOpen: boolean;
   setTourOpen: (open: boolean) => void;
+  // Auth session (in-memory Bearer token or Supabase JWT)
+  authUser: AuthUser | null;
+  authToken: string | null;
+  authChecked: boolean;
+  hasRegisteredUsers: boolean;
+  passwordRecoveryMode: boolean;
+  loginLocal: (email: string, password: string) => Promise<void>;
+  registerLocal: (params: {
+    displayName: string;
+    email: string;
+    password: string;
+    organization?: string;
+  }) => Promise<void>;
+  loginWithSupabase: (email: string, password: string) => Promise<void>;
+  signUpWithSupabase: (params: {
+    displayName: string;
+    email: string;
+    password: string;
+    organization?: string;
+  }) => Promise<{ requiresConfirmation: boolean }>;
+  signInWithOAuthProvider: (provider: 'google' | 'facebook' | 'github' | 'azure') => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (params: { newPassword: string; currentPassword?: string }) => Promise<void>;
+  cancelPasswordRecovery: () => void;
+  logout: () => Promise<void>;
   // Preview helper
   previewTarget: { title: string; bytes: Uint8Array; sha256: string; fileName: string } | null;
   openPdfPreview: (target: { title: string; bytes: Uint8Array; sha256: string; fileName: string }) => void;
@@ -148,16 +175,78 @@ function makeCorrelationId(): string {
   return `corr_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
 }
 
+const MODULE_ROUTES: Record<ModuleId, string> = {
+  dashboard: '/',
+  upload: '/upload',
+  fingerprints: '/fingerprints',
+  watermarking: '/watermarking',
+  verification: '/verification',
+  recipients: '/recipients',
+  inboxes: '/inboxes',
+  'email-processing': '/email-processing',
+  webhooks: '/webhooks',
+  events: '/events',
+  reports: '/reports',
+  explorer: '/explorer',
+  playground: '/playground',
+  productivity: '/productivity',
+  calendar: '/calendar',
+  'music-studio': '/music-studio',
+  game: '/game',
+  achievements: '/achievements',
+  personalization: '/personalization',
+  settings: '/settings',
+  docs: '/docs',
+};
+
+function pathnameToModule(pathname: string): ModuleId {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  const matched = (Object.entries(MODULE_ROUTES) as [ModuleId, string][]).find(
+    ([, route]) => route === clean
+  );
+  return matched ? matched[0] : 'dashboard';
+}
+
+function mapSupabaseUser(u: {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+}): AuthUser {
+  const meta = u.user_metadata || {};
+  const rawName =
+    (typeof meta.display_name === 'string' && meta.display_name) ||
+    (typeof meta.full_name === 'string' && meta.full_name) ||
+    (typeof meta.name === 'string' && meta.name) ||
+    (typeof meta.user_name === 'string' && meta.user_name) ||
+    u.email?.split('@')[0] ||
+    'Workspace User';
+  return {
+    id: u.id,
+    email: u.email || '',
+    displayName: rawName.trim() || 'Workspace User',
+    role: (typeof meta.role === 'string' && meta.role) || 'Custodian Operator',
+    organization: (typeof meta.organization === 'string' && meta.organization) || '',
+    provider: 'supabase',
+  };
+}
+
 export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<SystemState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeModule, setActiveModule] = useState<ModuleId>('dashboard');
+  const [activeModule, setActiveModuleState] = useState<ModuleId>(() =>
+    typeof window !== 'undefined' ? pathnameToModule(window.location.pathname) : 'dashboard'
+  );
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [hasRegisteredUsers, setHasRegisteredUsers] = useState(true);
+  const [passwordRecoveryMode, setPasswordRecoveryMode] = useState(false);
   const [previewTarget, setPreviewTarget] = useState<{
     title: string;
     bytes: Uint8Array;
@@ -167,6 +256,26 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const stateRef = useRef<SystemState | null>(null);
   stateRef.current = state;
+  const authUserRef = useRef<AuthUser | null>(null);
+  authUserRef.current = authUser;
+
+  const setActiveModule = useCallback((module: ModuleId) => {
+    setActiveModuleState(module);
+    if (typeof window !== 'undefined') {
+      const targetPath = MODULE_ROUTES[module] || '/';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ module }, '', targetPath);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setActiveModuleState(pathnameToModule(window.location.pathname));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -244,30 +353,175 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [state]);
 
+  const hydrateWorkspaceForUser = useCallback(async (user: AuthUser): Promise<AuthUser> => {
+    const loaded = await systemRepository.loadStateForUser(user);
+    let resolvedUser = user;
+    let nextState: SystemState = {
+      ...loaded,
+      settings: {
+        ...loaded.settings,
+        displayName: user.displayName || loaded.settings.displayName,
+        email: user.email || loaded.settings.email,
+        role: user.role || loaded.settings.role,
+        organization: user.organization || loaded.settings.organization,
+      },
+    };
+
+    if (user.provider === 'supabase') {
+      const profile = await systemRepository.fetchOrCreateSupabaseProfile({
+        id: user.id,
+        email: user.email,
+        fallbackName: user.displayName,
+        fallbackOrganization: user.organization,
+      });
+      if (profile) {
+        resolvedUser = {
+          ...user,
+          displayName: profile.display_name || user.displayName,
+          email: profile.email || user.email,
+          role: profile.role || user.role,
+          organization: profile.organization ?? user.organization,
+        };
+        const savedPrefs =
+          profile.preferences && typeof profile.preferences === 'object'
+            ? (profile.preferences as Partial<PersonalizationConfig>)
+            : undefined;
+        nextState = {
+          ...nextState,
+          settings: {
+            ...nextState.settings,
+            displayName: resolvedUser.displayName,
+            email: resolvedUser.email,
+            role: resolvedUser.role,
+            organization: resolvedUser.organization,
+            avatarPreset: profile.avatar_preset || nextState.settings.avatarPreset || 'unknown',
+            customAvatarDataUrl:
+              profile.custom_avatar_data_url || nextState.settings.customAvatarDataUrl,
+            coverPreset: profile.cover_preset || nextState.settings.coverPreset || 'navy-mesh',
+            personalization: savedPrefs
+              ? {
+                  ...nextState.settings.personalization,
+                  ...savedPrefs,
+                  ambientEffects: {
+                    ...nextState.settings.personalization.ambientEffects,
+                    ...(savedPrefs.ambientEffects || {}),
+                  },
+                  dashboardWidgets: {
+                    ...nextState.settings.personalization.dashboardWidgets,
+                    ...(savedPrefs.dashboardWidgets || {}),
+                  },
+                  notifications: {
+                    ...nextState.settings.personalization.notifications,
+                    ...(savedPrefs.notifications || {}),
+                  },
+                  privacy: {
+                    ...nextState.settings.personalization.privacy,
+                    ...(savedPrefs.privacy || {}),
+                  },
+                }
+              : nextState.settings.personalization,
+          },
+        };
+      }
+    }
+
+    authUserRef.current = resolvedUser;
+    setAuthUser(resolvedUser);
+    setState(nextState);
+    await systemRepository.saveState(nextState, resolvedUser);
+    return resolvedUser;
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const loaded = await systemRepository.loadState();
+        const statusRes = await fetch('/api/auth/status')
+          .then((r) => (r.ok ? r.json() : { hasUsers: false }))
+          .catch(() => ({ hasUsers: false }));
         if (!mounted) return;
-        setState(loaded);
+        setHasRegisteredUsers(Boolean(statusRes?.hasUsers));
+
+        if (isSupabaseConfigured && supabase) {
+          const { data } = await supabase.auth.getSession();
+          if (mounted && data.session?.user) {
+            setAuthToken(data.session.access_token);
+            const mapped = mapSupabaseUser(data.session.user);
+            await hydrateWorkspaceForUser(mapped);
+            return;
+          }
+        }
+
+        const guestState = await systemRepository.loadStateForUser(null);
+        if (mounted) {
+          setState(guestState);
+        }
       } catch (err) {
         if (!mounted) return;
         setLoadError(err instanceof Error ? err.message : 'Failed to initialize workspace.');
       } finally {
-        if (mounted) setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+          setAuthChecked(true);
+        }
       }
     })();
+
+    let unsubscribeSupabase: (() => void) | undefined;
+    if (isSupabaseConfigured && supabase) {
+      const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+        if (!mounted) return;
+        if (event === 'PASSWORD_RECOVERY') {
+          setPasswordRecoveryMode(true);
+          if (session?.access_token) {
+            setAuthToken(session.access_token);
+          }
+          if (session?.user) {
+            setAuthUser(mapSupabaseUser(session.user));
+          }
+          return;
+        }
+        if (event === 'SIGNED_OUT') {
+          if (authUserRef.current?.provider === 'supabase') {
+            authUserRef.current = null;
+            setAuthUser(null);
+            setAuthToken(null);
+            setPasswordRecoveryMode(false);
+            void systemRepository.loadStateForUser(null).then((guest) => {
+              if (mounted) setState(guest);
+            });
+          }
+          return;
+        }
+        if (
+          (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') &&
+          session?.user
+        ) {
+          setAuthToken(session.access_token);
+          const alreadyActiveSameUser =
+            authUserRef.current?.id === session.user.id &&
+            authUserRef.current?.provider === 'supabase' &&
+            event !== 'USER_UPDATED';
+          if (!alreadyActiveSameUser) {
+            const mapped = mapSupabaseUser(session.user);
+            void hydrateWorkspaceForUser(mapped);
+          }
+        }
+      });
+      unsubscribeSupabase = () => sub.subscription.unsubscribe();
+    }
+
     return () => {
       mounted = false;
+      unsubscribeSupabase?.();
     };
-  }, []);
+  }, [hydrateWorkspaceForUser]);
 
   const commitState = useCallback((updater: (prev: SystemState) => SystemState) => {
     setState((prev) => {
       if (!prev) return prev;
       const next = updater(prev);
-      void systemRepository.saveState(next);
+      void systemRepository.saveState(next, authUserRef.current);
       return next;
     });
   }, []);
@@ -360,7 +614,7 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         sha256Hash,
         fileSizeBytes: params.bytes.byteLength,
         pageCount: inspection.pageCount,
-        ownerName: params.ownerName.trim() || 'N. Kalyan Reddy',
+        ownerName: params.ownerName.trim() || stateRef.current?.settings.displayName || 'Workspace Owner',
         notes: params.notes.trim(),
         createdAt: new Date().toISOString(),
         hasBinaryInSession: true,
@@ -1318,38 +1572,60 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const updateSettings = useCallback(
     (partial: Partial<UserProfileSettings>) => {
-      commitState((prev) => {
+      setState((prev) => {
+        if (!prev) return prev;
         const nextSettings = { ...prev.settings, ...partial };
-        return { ...prev, settings: nextSettings };
+        const next = { ...prev, settings: nextSettings };
+        const currentUser = authUserRef.current;
+        void systemRepository.saveState(next, currentUser);
+        if (currentUser?.provider === 'supabase') {
+          void systemRepository.syncSupabaseProfile(currentUser.id, next);
+        }
+        if (currentUser) {
+          const syncedUser: AuthUser = {
+            ...currentUser,
+            displayName: nextSettings.displayName,
+            email: nextSettings.email,
+            role: nextSettings.role,
+            organization: nextSettings.organization,
+          };
+          authUserRef.current = syncedUser;
+          setAuthUser(syncedUser);
+        }
+        return next;
       });
       pushToast({ title: 'Settings Updated', variant: 'success' });
     },
-    [commitState, pushToast]
+    [pushToast]
   );
 
-  const updatePersonalization = useCallback(
-    (partial: Partial<PersonalizationConfig>) => {
-      commitState((prev) => {
-        const nextPers = { ...prev.settings.personalization, ...partial };
-        const resolvedTheme: 'dark' | 'light' =
-          nextPers.themeMode === 'system'
-            ? window.matchMedia?.('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light'
-            : nextPers.themeMode;
-        return {
-          ...prev,
-          settings: {
-            ...prev.settings,
-            theme: resolvedTheme,
-            compactTables: nextPers.density === 'compact',
-            personalization: nextPers,
-          },
-        };
-      });
-    },
-    [commitState]
-  );
+  const updatePersonalization = useCallback((partial: Partial<PersonalizationConfig>) => {
+    setState((prev) => {
+      if (!prev) return prev;
+      const nextPers = { ...prev.settings.personalization, ...partial };
+      const resolvedTheme: 'dark' | 'light' =
+        nextPers.themeMode === 'system'
+          ? window.matchMedia?.('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light'
+          : nextPers.themeMode;
+      const next: SystemState = {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          theme: resolvedTheme,
+          compactTables: nextPers.density === 'compact',
+          personalization: nextPers,
+        },
+      };
+      const currentUser = authUserRef.current;
+      void systemRepository.saveState(next, currentUser);
+      if (currentUser?.provider === 'supabase') {
+        void systemRepository.syncSupabaseProfile(currentUser.id, next);
+      }
+      return next;
+    });
+  }, []);
 
   const toggleTheme = useCallback(() => {
     const currentTheme = stateRef.current?.settings.theme || 'dark';
@@ -1515,7 +1791,7 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const resetDemoData = useCallback(async () => {
     setIsRefreshing(true);
     const theme = stateRef.current?.settings.theme || 'dark';
-    const fresh = await systemRepository.resetToDemoSeed(theme);
+    const fresh = await systemRepository.resetToDemoSeed(theme, authUserRef.current);
     setState(fresh);
     setIsRefreshing(false);
     pushToast({
@@ -1528,12 +1804,12 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const clearAllData = useCallback(async () => {
     setIsRefreshing(true);
     const theme = stateRef.current?.settings.theme || 'dark';
-    const empty = await systemRepository.clearAllData(theme);
+    const empty = await systemRepository.clearAllData(theme, authUserRef.current);
     setState(empty);
     setIsRefreshing(false);
     pushToast({
       title: 'Workspace Cleared',
-      description: 'All local documents, logs, and relay records removed.',
+      description: 'All private workspace documents, logs, and relay records removed.',
       variant: 'info',
     });
   }, [pushToast]);
@@ -1548,6 +1824,239 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     [markDocumentViewed]
   );
+
+  const loginLocal = useCallback(
+    async (email: string, password: string) => {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Sign in failed.');
+      }
+      const user: AuthUser = { ...data.user, provider: 'local' };
+      setAuthToken(data.token);
+      setHasRegisteredUsers(true);
+      await hydrateWorkspaceForUser(user);
+      setActiveModule('dashboard');
+      pushToast({ title: `Welcome back, ${user.displayName}`, variant: 'success' });
+    },
+    [hydrateWorkspaceForUser, pushToast, setActiveModule]
+  );
+
+  const registerLocal = useCallback(
+    async (params: {
+      displayName: string;
+      email: string;
+      password: string;
+      organization?: string;
+    }) => {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Account registration failed.');
+      }
+      const user: AuthUser = { ...data.user, provider: 'local' };
+      setAuthToken(data.token);
+      setHasRegisteredUsers(true);
+      await hydrateWorkspaceForUser(user);
+      setActiveModule('dashboard');
+      pushToast({
+        title: 'Custodian Account Created',
+        description: `Signed in as ${user.email}`,
+        variant: 'success',
+      });
+    },
+    [hydrateWorkspaceForUser, pushToast, setActiveModule]
+  );
+
+  const loginWithSupabase = useCallback(
+    async (email: string, password: string) => {
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase Auth is not configured.');
+      }
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.user || !data.session) {
+        throw new Error(error?.message || 'Supabase sign in failed.');
+      }
+      setAuthToken(data.session.access_token);
+      const resolved = await hydrateWorkspaceForUser(mapSupabaseUser(data.user));
+      setActiveModule('dashboard');
+      pushToast({ title: `Welcome back, ${resolved.displayName}`, variant: 'success' });
+    },
+    [hydrateWorkspaceForUser, pushToast, setActiveModule]
+  );
+
+  const signUpWithSupabase = useCallback(
+    async (params: {
+      displayName: string;
+      email: string;
+      password: string;
+      organization?: string;
+    }) => {
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase Auth is not configured.');
+      }
+      const { data, error } = await supabase.auth.signUp({
+        email: params.email,
+        password: params.password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: {
+            display_name: params.displayName,
+            organization: params.organization || '',
+          },
+        },
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      if (data.session && data.user) {
+        setAuthToken(data.session.access_token);
+        const mapped: AuthUser = {
+          ...mapSupabaseUser(data.user),
+          displayName: params.displayName,
+          organization: params.organization || '',
+        };
+        await hydrateWorkspaceForUser(mapped);
+        setActiveModule('dashboard');
+        return { requiresConfirmation: false };
+      }
+      return { requiresConfirmation: true };
+    },
+    [hydrateWorkspaceForUser, setActiveModule]
+  );
+
+  const signInWithOAuthProvider = useCallback(
+    async (provider: 'google' | 'facebook' | 'github' | 'azure') => {
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error(
+          'OAuth sign-in requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY with the provider enabled in Supabase Authentication.'
+        );
+      }
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: window.location.origin,
+          ...(provider === 'azure' ? { scopes: 'email profile openid' } : {}),
+        },
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+    },
+    []
+  );
+
+  const sendPasswordReset = useCallback(
+    async (email: string) => {
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error(
+          'Email password reset links require Supabase Auth (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY). Local Server Session accounts can update their password inside Profile & Settings once signed in.'
+        );
+      }
+      const cleanEmail = email.trim();
+      if (!cleanEmail) {
+        throw new Error('Please enter your account email address.');
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: window.location.origin,
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      pushToast({
+        title: 'Password Reset Sent',
+        description: `Check ${cleanEmail} for the recovery link.`,
+        variant: 'info',
+      });
+    },
+    [pushToast]
+  );
+
+  const updatePassword = useCallback(
+    async (params: { newPassword: string; currentPassword?: string }) => {
+      const { newPassword, currentPassword } = params;
+      if (newPassword.length < 8) {
+        throw new Error('New password must be at least 8 characters long.');
+      }
+
+      if (authUserRef.current?.provider === 'supabase' || passwordRecoveryMode) {
+        if (!isSupabaseConfigured || !supabase) {
+          throw new Error('Supabase Auth is not configured.');
+        }
+        const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) {
+          throw new Error(error.message);
+        }
+        setPasswordRecoveryMode(false);
+        if (data.user) {
+          await hydrateWorkspaceForUser(mapSupabaseUser(data.user));
+        }
+        pushToast({
+          title: 'Password Updated',
+          description: 'Your Supabase account password has been updated.',
+          variant: 'success',
+        });
+        return;
+      }
+
+      if (!authToken) {
+        throw new Error('Active session required to change password.');
+      }
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update password.');
+      }
+      pushToast({
+        title: 'Password Updated',
+        description: 'Your local account password has been updated.',
+        variant: 'success',
+      });
+    },
+    [authToken, hydrateWorkspaceForUser, passwordRecoveryMode, pushToast]
+  );
+
+  const cancelPasswordRecovery = useCallback(() => {
+    setPasswordRecoveryMode(false);
+  }, []);
+
+  const logout = useCallback(async () => {
+    const token = authToken;
+    const provider = authUserRef.current?.provider;
+    authUserRef.current = null;
+    setAuthUser(null);
+    setAuthToken(null);
+    setPasswordRecoveryMode(false);
+    setCommandPaletteOpen(false);
+    setNotificationsOpen(false);
+    setTourOpen(false);
+    setActiveModule('dashboard');
+    if (provider === 'supabase' && isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut().catch(() => {});
+    } else if (token) {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    const guestState = await systemRepository.loadStateForUser(null);
+    setState(guestState);
+  }, [authToken, setActiveModule]);
 
   return (
     <SystemContext.Provider
@@ -1604,6 +2113,20 @@ export const SystemProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setNotificationsOpen,
         tourOpen,
         setTourOpen,
+        authUser,
+        authToken,
+        authChecked,
+        hasRegisteredUsers,
+        passwordRecoveryMode,
+        loginLocal,
+        registerLocal,
+        loginWithSupabase,
+        signUpWithSupabase,
+        signInWithOAuthProvider,
+        sendPasswordReset,
+        updatePassword,
+        cancelPasswordRecovery,
+        logout,
         previewTarget,
         openPdfPreview: openPdfPreviewWithTracking,
         closePdfPreview: () => setPreviewTarget(null),

@@ -21,6 +21,15 @@ export type ModuleId =
   | 'settings'
   | 'docs';
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+  organization: string;
+  provider: 'local' | 'supabase';
+}
+
 export type DocumentClassification = 'Confidential' | 'Restricted' | 'Internal' | 'Board Only';
 
 export interface VaultDocument {

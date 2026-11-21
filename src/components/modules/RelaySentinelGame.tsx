@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import gameBackdropImg from '../../assets/images/game_sentinel_backdrop_1795259193782.jpg';
 import { gameAudio } from '../../utils/gameAudio';
 
 type GamePhase = 'TITLE_MENU' | 'PLAYING' | 'PAUSED' | 'VICTORY' | 'GAME_OVER';
@@ -56,7 +57,7 @@ interface Particle {
   color: string;
 }
 
-const BACKDROP_SRC = '/src/assets/images/game_sentinel_backdrop_1795259193782.jpg';
+const BACKDROP_SRC = gameBackdropImg;
 const PARTICLE_POOL_SIZE = 160;
 const CAMPAIGN_WAVES = 5;
 

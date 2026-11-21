@@ -42,7 +42,7 @@ export const UploadModule: React.FC = () => {
 
   const [title, setTitle] = useState('');
   const [classification, setClassification] = useState<DocumentClassification>('Confidential');
-  const [ownerName, setOwnerName] = useState(state?.settings.displayName || 'N. Kalyan Reddy');
+  const [ownerName, setOwnerName] = useState(state?.settings.displayName || 'Workspace Owner');
   const [notes, setNotes] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -87,7 +87,7 @@ export const UploadModule: React.FC = () => {
     const bytes = await generateSamplePdf({
       title: sampleTitle,
       classification,
-      ownerName: ownerName || 'N. Kalyan Reddy',
+      ownerName: ownerName || state?.settings.displayName || 'Workspace Owner',
       sections: [
         {
           heading: '1. Purpose & Fingerprinting Baseline',

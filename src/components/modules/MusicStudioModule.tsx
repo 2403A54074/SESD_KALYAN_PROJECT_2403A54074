@@ -19,6 +19,7 @@ import {
   Waves,
   X,
 } from 'lucide-react';
+import { useSystem } from '../../context/SystemContext';
 import { AMBIENT_TRACKS, ambientBgm, type SoundscapeKind } from '../../utils/ambientBgm';
 import { AmbientAudioVisualizer } from '../ui/AmbientVisualLayer';
 import { ModulePageHeader } from '../ui/CommonUI';
@@ -49,6 +50,7 @@ const STARTER_PROMPTS = [
 ];
 
 export const MusicStudioModule: React.FC = () => {
+  const { authToken } = useSystem();
   const [engineState, setEngineState] = useState(() => ambientBgm.getState());
   const [lyriaMode, setLyriaMode] = useState<'clip' | 'pro'>('clip');
   const [prompt, setPrompt] = useState(STARTER_PROMPTS[0]);
@@ -119,9 +121,13 @@ export const MusicStudioModule: React.FC = () => {
     setGenError(null);
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
       const res = await fetch('/api/music/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           prompt: prompt.trim(),
           mode: lyriaMode,

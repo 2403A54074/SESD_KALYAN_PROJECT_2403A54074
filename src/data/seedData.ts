@@ -1,4 +1,5 @@
 import type {
+  AuthUser,
   PersonalizationConfig,
   ProductivityState,
   SystemNotification,
@@ -141,10 +142,10 @@ export function createEmptyState(theme: 'dark' | 'light' = 'dark'): SystemState 
     },
     exportedReportsCount: 0,
     settings: {
-      displayName: 'N. Kalyan Reddy',
-      email: 'kalyan.reddy@relay-security.example',
-      role: 'Lead Systems Architect',
-      organization: 'RelayWatermark Engineering Lab',
+      displayName: 'Workspace User',
+      email: '',
+      role: 'Custodian Operator',
+      organization: '',
       avatarPreset: 'unknown',
       coverPreset: 'navy-mesh',
       theme,
@@ -165,7 +166,7 @@ const SAMPLE_DOCS_SPEC = [
     title: 'Zero-Trust Key Escrow & Relay Architecture v2.4',
     fileName: 'zero-trust-relay-architecture-v2.4.pdf',
     classification: 'Confidential' as const,
-    ownerName: 'N. Kalyan Reddy',
+    ownerName: 'Workspace Owner',
     notes: 'Core system design specification shared with security reviewers and external auditors.',
     createdOffsetHours: 72,
     sections: [
@@ -184,7 +185,7 @@ const SAMPLE_DOCS_SPEC = [
     title: 'Q4 Vendor Security & Compliance Assessment',
     fileName: 'q4-vendor-compliance-assessment.pdf',
     classification: 'Restricted' as const,
-    ownerName: 'N. Kalyan Reddy',
+    ownerName: 'Workspace Owner',
     notes: 'Contains third-party penetration testing findings and remediation SLAs.',
     createdOffsetHours: 48,
     sections: [
@@ -203,7 +204,7 @@ const SAMPLE_DOCS_SPEC = [
     title: 'Infrastructure Resilience & Incident Playbook',
     fileName: 'infra-resilience-incident-playbook.pdf',
     classification: 'Board Only' as const,
-    ownerName: 'N. Kalyan Reddy',
+    ownerName: 'Workspace Owner',
     notes: 'Executive contingency brief for multi-region failover and key revocation drills.',
     createdOffsetHours: 18,
     sections: [
@@ -223,7 +224,11 @@ function hoursFromNowIso(hours: number): string {
   return new Date(Date.now() + hours * 3600 * 1000).toISOString();
 }
 
-export async function buildSeededSystemState(theme: 'dark' | 'light' = 'dark'): Promise<SystemState> {
+export async function buildSeededSystemState(
+  theme: 'dark' | 'light' = 'dark',
+  user?: AuthUser
+): Promise<SystemState> {
+  const actorName = user?.displayName || 'Workspace Owner';
   const recipients = [
     {
       id: 'rec-priya',
@@ -278,7 +283,7 @@ export async function buildSeededSystemState(theme: 'dark' | 'light' = 'dark'): 
     const bytes = await generateSamplePdf({
       title: spec.title,
       classification: spec.classification,
-      ownerName: spec.ownerName,
+      ownerName: actorName,
       sections: spec.sections,
     });
     const sha256Hash = await computeSha256Hex(bytes);
@@ -292,7 +297,7 @@ export async function buildSeededSystemState(theme: 'dark' | 'light' = 'dark'): 
       sha256Hash,
       fileSizeBytes: bytes.byteLength,
       pageCount: 2,
-      ownerName: spec.ownerName,
+      ownerName: actorName,
       notes: spec.notes,
       createdAt: hoursAgoIso(spec.createdOffsetHours),
       hasBinaryInSession: true,
@@ -646,7 +651,7 @@ export async function buildSeededSystemState(theme: 'dark' | 'light' = 'dark'): 
   const activityLogs = [
     {
       id: 'act-1',
-      actor: 'N. Kalyan Reddy',
+      actor: actorName,
       module: 'Document Upload',
       action: 'Registered Master PDF',
       resourceLabel: documents[0].fileName,
@@ -656,7 +661,7 @@ export async function buildSeededSystemState(theme: 'dark' | 'light' = 'dark'): 
     },
     {
       id: 'act-2',
-      actor: 'N. Kalyan Reddy',
+      actor: actorName,
       module: 'PDF Watermarking',
       action: 'Issued Recipient Copy',
       resourceLabel: `${watermarkedCopies[0].watermarkCode} → ${recipients[0].email}`,
@@ -713,10 +718,10 @@ export async function buildSeededSystemState(theme: 'dark' | 'light' = 'dark'): 
     productivity: createDefaultProductivity(),
     exportedReportsCount: 0,
     settings: {
-      displayName: 'N. Kalyan Reddy',
-      email: 'kalyan.reddy@relay-security.example',
-      role: 'Lead Systems Architect',
-      organization: 'RelayWatermark Engineering Lab',
+      displayName: user?.displayName || 'Workspace User',
+      email: user?.email || '',
+      role: user?.role || 'Custodian Operator',
+      organization: user?.organization || '',
       avatarPreset: 'unknown',
       coverPreset: 'navy-mesh',
       theme,
