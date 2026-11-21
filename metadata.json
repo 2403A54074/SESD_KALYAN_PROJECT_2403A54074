@@ -1,0 +1,8 @@
+{
+  "name": "Digital Document Watermarking & Ephemeral SMTP–Webhook Relay System",
+  "description": "Software engineering and system design workspace for SHA-256 PDF fingerprinting, visible recipient-specific watermarking, forensic document verification, demo ephemeral SMTP relay processing, and HMAC-signed webhook delivery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
