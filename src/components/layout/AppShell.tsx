@@ -14,7 +14,6 @@ import {
   Gamepad2,
   Inbox,
   LayoutDashboard,
-  LogOut,
   MailCheck,
   Menu,
   Moon,
@@ -124,7 +123,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     setNotificationsOpen,
     setTourOpen,
     toggleFocusMode,
-    logout,
   } = useSystem();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -212,13 +210,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         ))}
       </nav>
 
-      {/* Sidebar User Switcher + Sign Out */}
+      {/* Sidebar Profile Link */}
       {state && (
-        <div className="border-t border-slate-200 dark:border-slate-800 p-3 flex items-center gap-1.5">
+        <div className="border-t border-slate-200 dark:border-slate-800 p-3">
           <button
             type="button"
             onClick={() => handleSelectModule('settings')}
-            className="flex-1 min-w-0 flex items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+            className="w-full min-w-0 flex items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
           >
             <AvatarDisplay sizeClass="h-8 w-8" textSizeClass="text-xs" />
             <div className="min-w-0">
@@ -229,15 +227,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 {state.settings.email || state.settings.role}
               </p>
             </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            title="Sign Out"
-            aria-label="Sign out of workspace"
-            className="rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-rose-600 dark:hover:text-rose-400 transition-colors shrink-0"
-          >
-            <LogOut className="h-4 w-4" />
           </button>
         </div>
       )}

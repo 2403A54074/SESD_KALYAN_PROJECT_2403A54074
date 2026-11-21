@@ -3,10 +3,6 @@ import {
   Camera,
   Database,
   Download,
-  KeyRound,
-  LockKeyhole,
-  LogOut,
-  MonitorSmartphone,
   RotateCcw,
   Shield,
   Trash2,
@@ -73,13 +69,11 @@ export const AvatarDisplay: React.FC<{
   sizeClass?: string;
   textSizeClass?: string;
 }> = ({ sizeClass = 'h-16 w-16', textSizeClass = 'text-lg' }) => {
-  const { state, authUser } = useSystem();
+  const { state } = useSystem();
   const [portraitFailed, setPortraitFailed] = useState(false);
-  const [googleAvatarFailed, setGoogleAvatarFailed] = useState(false);
 
   if (!state) return null;
-  const { avatarPreset, avatarUrl, customAvatarDataUrl, displayName } = state.settings;
-  const resolvedGoogleUrl = avatarUrl || authUser?.avatarUrl;
+  const { avatarPreset, customAvatarDataUrl, displayName } = state.settings;
 
   const initials = displayName
     .split(' ')
@@ -94,18 +88,6 @@ export const AvatarDisplay: React.FC<{
       <img
         src={customAvatarDataUrl}
         alt={displayName}
-        className={`${sizeClass} rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0`}
-      />
-    );
-  }
-
-  if (avatarPreset === 'google' && resolvedGoogleUrl && !googleAvatarFailed) {
-    return (
-      <img
-        src={resolvedGoogleUrl}
-        alt={displayName}
-        referrerPolicy="no-referrer"
-        onError={() => setGoogleAvatarFailed(true)}
         className={`${sizeClass} rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0`}
       />
     );
@@ -167,22 +149,16 @@ export const AvatarDisplay: React.FC<{
 export const ProfileSettingsModule: React.FC = () => {
   const {
     state,
-    authUser,
-    logout,
     updateSettings,
     updatePersonalization,
-    updatePassword,
-    sendPasswordReset,
     resetDemoData,
     clearAllData,
     pushToast,
   } = useSystem();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [displayName, setDisplayName] = useState(
-    authUser?.displayName || state?.settings.displayName || 'Workspace User'
-  );
-  const [email, setEmail] = useState(authUser?.email || state?.settings.email || '');
+  const [displayName, setDisplayName] = useState(state?.settings.displayName || 'Workspace User');
+  const [email, setEmail] = useState(state?.settings.email || '');
   const [role, setRole] = useState(state?.settings.role || 'Custodian Operator');
   const [organization, setOrganization] = useState(state?.settings.organization || '');
   const [defaultTemplate, setDefaultTemplate] = useState(
@@ -195,23 +171,19 @@ export const ProfileSettingsModule: React.FC = () => {
     state?.settings.defaultWatermark.opacity || 0.22
   );
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [passwordBusy, setPasswordBusy] = useState(false);
-  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
   const [supabaseCheckResult, setSupabaseCheckResult] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<'reset' | 'clear' | null>(null);
 
   useEffect(() => {
     if (!state) return;
-    setDisplayName(state.settings.displayName || authUser?.displayName || 'Workspace User');
-    setEmail(state.settings.email || authUser?.email || '');
-    setRole(state.settings.role || authUser?.role || 'Custodian Operator');
-    setOrganization(state.settings.organization || authUser?.organization || '');
+    setDisplayName(state.settings.displayName || 'Workspace User');
+    setEmail(state.settings.email || '');
+    setRole(state.settings.role || 'Custodian Operator');
+    setOrganization(state.settings.organization || '');
     setDefaultTemplate(state.settings.defaultWatermark.overlayTemplate || '');
     setDefaultColor(state.settings.defaultWatermark.colorPreset || 'cyan');
     setDefaultOpacity(state.settings.defaultWatermark.opacity || 0.22);
-  }, [state, authUser]);
+  }, [state]);
 
   if (!state) return null;
 
@@ -244,7 +216,7 @@ export const ProfileSettingsModule: React.FC = () => {
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     updateSettings({
-      displayName: displayName.trim() || authUser?.displayName || 'Workspace User',
+      displayName: displayName.trim() || 'Workspace User',
       email: email.trim(),
       role: role.trim() || 'Custodian Operator',
       organization: organization.trim(),
@@ -255,26 +227,6 @@ export const ProfileSettingsModule: React.FC = () => {
         opacity: defaultOpacity,
       },
     });
-  };
-
-  const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (passwordBusy) return;
-    setPasswordStatus(null);
-    setPasswordBusy(true);
-    try {
-      await updatePassword({
-        currentPassword: authUser?.provider === 'local' ? currentPassword : undefined,
-        newPassword,
-      });
-      setCurrentPassword('');
-      setNewPassword('');
-      setPasswordStatus('Password updated successfully.');
-    } catch (err) {
-      setPasswordStatus(err instanceof Error ? err.message : 'Failed to update password.');
-    } finally {
-      setPasswordBusy(false);
-    }
   };
 
   const handleExportPersonalData = () => {
@@ -344,9 +296,11 @@ export const ProfileSettingsModule: React.FC = () => {
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                 {state.settings.displayName}
               </h2>
-              <p className="text-xs font-mono text-slate-600 dark:text-slate-300">
-                {state.settings.email || authUser?.email || 'No email set'}
-              </p>
+              {state.settings.email && (
+                <p className="text-xs font-mono text-slate-600 dark:text-slate-300">
+                  {state.settings.email}
+                </p>
+              )}
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {state.settings.role}
                 {state.settings.organization ? ` · ${state.settings.organization}` : ''}
@@ -355,9 +309,7 @@ export const ProfileSettingsModule: React.FC = () => {
                 DP Mode:{' '}
                 {state.settings.avatarPreset === 'unknown'
                   ? 'Default (Unknown)'
-                  : state.settings.avatarPreset === 'google'
-                    ? 'Google Profile Photo'
-                    : state.settings.avatarPreset}
+                  : state.settings.avatarPreset}
               </p>
             </div>
           </div>
@@ -392,9 +344,6 @@ export const ProfileSettingsModule: React.FC = () => {
               className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200"
             >
               <option value="unknown">Unknown (Default)</option>
-              {(state.settings.avatarUrl || authUser?.avatarUrl) && (
-                <option value="google">Google Profile Photo</option>
-              )}
               {state.settings.customAvatarDataUrl && <option value="custom">Uploaded Custom DP</option>}
               <option value="initials">Monogram Initials</option>
               <option value="cyan-crest">Cyan Crest</option>
@@ -541,50 +490,29 @@ export const ProfileSettingsModule: React.FC = () => {
             ))}
           </div>
 
-          {/* Connected Providers & Session */}
+          {/* Repository Storage Status */}
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5 space-y-3">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-              <span>Auth Providers &amp; Active Session</span>
+              <Database className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+              <span>Workspace Storage &amp; Supabase Health</span>
             </h2>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2">
-                <span className="font-medium text-slate-800 dark:text-slate-200">Supabase Auth</span>
-                <span className="font-mono text-[11px] text-slate-500">
-                  {storageInfo.mode === 'supabase' ? 'Configured' : 'Local Mode (Not Connected)'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2">
-                <span className="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                  <MonitorSmartphone className="h-3.5 w-3.5 text-cyan-500" />
-                  <span>Current Authenticated Session</span>
-                </span>
-                <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
-                  {authUser?.provider === 'supabase' ? 'Supabase JWT' : 'Server Bearer Session'}
-                </span>
-              </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2 text-xs">
+              <span className="font-medium text-slate-800 dark:text-slate-200">Storage Mode</span>
+              <span className="font-mono text-[11px] text-slate-500">
+                {storageInfo.mode === 'supabase' ? 'Supabase Client Ready' : 'Local Browser Repository'}
+              </span>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  const res = await systemRepository.checkSupabaseHealth();
-                  setSupabaseCheckResult(res.message);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
-              >
-                <Database className="h-3.5 w-3.5" />
-                <span>Verify Supabase Connection</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void logout()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 dark:border-rose-900 px-3 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                <span>Sign Out</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await systemRepository.checkSupabaseHealth();
+                setSupabaseCheckResult(res.message);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
+            >
+              <Database className="h-3.5 w-3.5" />
+              <span>Verify Supabase Connection</span>
+            </button>
             {supabaseCheckResult && (
               <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5">
                 {supabaseCheckResult}
@@ -592,10 +520,10 @@ export const ProfileSettingsModule: React.FC = () => {
             )}
           </div>
 
-          {/* Export Personal Data & Account Deletion */}
+          {/* Export Personal Data & Workspace Reset */}
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5 space-y-3">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Personal Data Export &amp; Account Reset
+              Personal Data Export &amp; Workspace Reset
             </h2>
             <div className="flex flex-wrap gap-2">
               <button
@@ -620,7 +548,7 @@ export const ProfileSettingsModule: React.FC = () => {
                 className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 dark:border-rose-900 px-3 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                <span>Delete Local Account Data</span>
+                <span>Clear Workspace Data</span>
               </button>
             </div>
 
@@ -629,7 +557,7 @@ export const ProfileSettingsModule: React.FC = () => {
                 <p className="font-medium text-amber-950 dark:text-amber-200">
                   {confirmAction === 'reset'
                     ? 'Restore initial seeded documents and logs?'
-                    : 'Permanently delete all private workspace data and reset profile to empty state?'}
+                    : 'Permanently delete all local workspace data and reset profile to empty state?'}
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -654,68 +582,6 @@ export const ProfileSettingsModule: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Password Security & Recovery */}
-          <form
-            onSubmit={(e) => void handlePasswordChange(e)}
-            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5 space-y-3"
-          >
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              <LockKeyhole className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-              <span>Password &amp; Recovery</span>
-            </h2>
-            {authUser?.provider === 'local' && (
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Current Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
-                />
-              </div>
-            )}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                New Password (min 8 characters)
-              </label>
-              <input
-                type="password"
-                required
-                minLength={8}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password"
-                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="submit"
-                disabled={passwordBusy}
-                className="rounded-lg bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-white"
-              >
-                {passwordBusy ? 'Updating…' : 'Update Password'}
-              </button>
-              {authUser?.provider === 'supabase' && state.settings.email && (
-                <button
-                  type="button"
-                  onClick={() => void sendPasswordReset(state.settings.email)}
-                  className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200"
-                >
-                  Email Reset Link
-                </button>
-              )}
-            </div>
-            {passwordStatus && (
-              <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300">
-                {passwordStatus}
-              </p>
-            )}
-          </form>
 
           {/* Permanent System Developer Credit (non-editable, visible for every account) */}
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 p-4 flex items-center justify-between gap-3">

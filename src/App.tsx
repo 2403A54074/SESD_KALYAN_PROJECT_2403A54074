@@ -4,7 +4,6 @@
  */
 
 import React from 'react';
-import { LoginPage } from './components/auth/LoginPage';
 import { AppShell } from './components/layout/AppShell';
 import { AchievementsModule } from './components/modules/AchievementsModule';
 import { CalendarModule } from './components/modules/CalendarModule';
@@ -123,19 +122,7 @@ const ActiveModuleViewport: React.FC = () => {
 };
 
 const RootRouter: React.FC = () => {
-  const { activeModule, setActiveModule, authUser, authChecked, passwordRecoveryMode } = useSystem();
-
-  if (!authChecked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#070B14] text-slate-600 dark:text-slate-300 text-xs font-mono">
-        Initializing workspace session…
-      </div>
-    );
-  }
-
-  if (!authUser || passwordRecoveryMode) {
-    return <LoginPage />;
-  }
+  const { activeModule, setActiveModule } = useSystem();
 
   // Dedicated Full-Viewport Game Shell without website navbars or footers
   if (activeModule === 'game') {
