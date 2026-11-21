@@ -1,22 +1,22 @@
 import React, { useRef, useState } from 'react';
-import { CheckCircle2, FileSearch, ShieldAlert, ShieldCheck, Upload } from 'lucide-react';
+import { CheckCircle2, FileSearch, Info, ShieldAlert, Upload } from 'lucide-react';
 import { useSystem } from '../../context/SystemContext';
 import type { VerificationRecord } from '../../types/system';
-import { getPdfBinary } from '../../utils/cryptoPdf';
 import { CopyValueButton, EmptyState, ErrorAlert, ModulePageHeader, StatusLabel } from '../ui/CommonUI';
 
 export const VerificationModule: React.FC = () => {
   const { state, verifyDocumentFile, verifyByHashOrCode } = useSystem();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [dragActive, setDragActive] = useState(false);
   const [lookupInput, setLookupInput] = useState('');
   const [latestResult, setLatestResult] = useState<VerificationRecord | null>(
-    state?.verificationRecords[0] || null
+    state.verificationRecords[0] || null
   );
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  if (!state) return null;
+  const rowPad = state.settings.compactTables ? 'py-2 px-3.5' : 'py-3 px-4';
 
   const handleFileVerify = async (file?: File) => {
     if (!file) return;
@@ -40,7 +40,7 @@ export const VerificationModule: React.FC = () => {
   const handleHashVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!lookupInput.trim()) {
-      setErrorMsg('Enter a 64-character SHA-256 hash or Watermark ID (e.g. WM-8F2A91).');
+      setErrorMsg('Enter a 64-character SHA-256 hash or Watermark Tracking ID (e.g., WM-XXXXXXXX).');
       return;
     }
     setErrorMsg(null);
@@ -55,41 +55,11 @@ export const VerificationModule: React.FC = () => {
     }
   };
 
-  const handleQuickVerifySeededWatermark = async () => {
-    const firstCopy = state.watermarkedCopies[0];
-    if (!firstCopy) return;
-    const bytes = getPdfBinary(`wm:${firstCopy.watermarkCode}`);
-    if (bytes) {
-      setIsVerifying(true);
-      const record = await verifyDocumentFile({
-        fileName: `${firstCopy.watermarkCode}-suspect-copy.pdf`,
-        bytes,
-      });
-      setLatestResult(record);
-      setIsVerifying(false);
-    } else {
-      const record = await verifyByHashOrCode(firstCopy.watermarkedSha256);
-      setLatestResult(record);
-    }
-  };
-
   return (
     <div>
       <ModulePageHeader
-        title="Forensic Document Verification"
-        description="Verify any suspect PDF file or SHA-256 digest against the master vault, watermarked copy ledger, and embedded PDF attribution metadata."
-        actions={
-          state.watermarkedCopies[0] && (
-            <button
-              type="button"
-              onClick={() => void handleQuickVerifySeededWatermark()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
-              <span>Test Verify {state.watermarkedCopies[0].watermarkCode}</span>
-            </button>
-          )
-        }
+        title="Document Verification"
+        description="Upload a PDF to compute its SHA-256 fingerprint and check whether it matches a registered Original Master, a Watermarked Copy, or a Modified or Unregistered File."
       />
 
       {errorMsg && (
@@ -98,16 +68,39 @@ export const VerificationModule: React.FC = () => {
         </div>
       )}
 
+      <div className="mb-6 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-4 py-3 flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300">
+        <Info className="h-4 w-4 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5" />
+        <p>
+          Document verification provides cryptographic integrity checking and registered copy traceability. It identifies a registered copy when an exact match exists; it does not prevent copying or prove who leaked a document.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
         {/* Upload / Lookup Controls */}
         <div className="lg:col-span-5 space-y-5">
-          <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900/60 p-6 text-center">
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              void handleFileVerify(e.dataTransfer.files?.[0]);
+            }}
+            className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+              dragActive
+                ? 'border-cyan-500 bg-cyan-500/5'
+                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900/60'
+            }`}
+          >
             <Upload className="h-8 w-8 text-cyan-600 dark:text-cyan-400 mx-auto mb-2.5" />
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Inspect Suspect PDF File
+              Verify PDF File
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Computes real SHA-256 and scans PDF Keywords/Subject metadata for RW-ATTR attribution markers.
+              Computes exact SHA-256 fingerprint and inspects embedded tracking metadata.
             </p>
             <input
               ref={fileInputRef}
@@ -122,7 +115,7 @@ export const VerificationModule: React.FC = () => {
               disabled={isVerifying}
               className="mt-4 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-4 py-2 text-xs font-semibold text-white transition-colors"
             >
-              {isVerifying ? 'Analyzing PDF…' : 'Upload PDF to Verify'}
+              {isVerifying ? 'Verifying PDF…' : 'Upload PDF to Verify'}
             </button>
           </div>
 
@@ -131,13 +124,13 @@ export const VerificationModule: React.FC = () => {
             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5 space-y-3"
           >
             <label className="block text-xs font-semibold text-slate-900 dark:text-white">
-              Verify by SHA-256 Digest or Watermark Code
+              Or Verify by SHA-256 / Watermark Tracking ID
             </label>
             <input
               type="text"
               value={lookupInput}
               onChange={(e) => setLookupInput(e.target.value)}
-              placeholder="Paste 64-char SHA-256 or WM-XXXXXX"
+              placeholder="Paste 64-char SHA-256 or WM-XXXXXXXX"
               className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-100 focus:border-cyan-500 focus:outline-none"
             />
             <button
@@ -145,35 +138,33 @@ export const VerificationModule: React.FC = () => {
               disabled={isVerifying}
               className="w-full rounded-lg bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 px-4 py-2 text-xs font-medium text-white transition-colors"
             >
-              Run Ledger Lookup
+              Check Registry
             </button>
           </form>
         </div>
 
-        {/* Latest Forensic Verdict */}
+        {/* Latest Verification Verdict */}
         <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">
-            Forensic Attribution Verdict
+            Verification Result
           </h2>
 
           {!latestResult ? (
             <EmptyState
               icon={<FileSearch className="h-5 w-5" />}
-              title="No verification executed yet"
-              description="Upload a suspect PDF or run a hash lookup to inspect recipient attribution."
+              title="No verification check run yet"
+              description="Upload a PDF file or look up a SHA-256 digest / Watermark Tracking ID to check authenticity."
             />
           ) : (
             <div className="space-y-4">
               <div
                 className={`rounded-xl border p-4 flex items-start gap-3 ${
-                  latestResult.outcome === 'Unregistered'
+                  latestResult.outcome === 'Modified or Unregistered File'
                     ? 'border-rose-300 dark:border-rose-900 bg-rose-50/70 dark:bg-rose-950/30'
-                    : latestResult.outcome === 'Metadata Attribution Match'
-                      ? 'border-amber-300 dark:border-amber-900 bg-amber-50/70 dark:bg-amber-950/30'
-                      : 'border-emerald-300 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/30'
+                    : 'border-emerald-300 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/30'
                 }`}
               >
-                {latestResult.outcome === 'Unregistered' ? (
+                {latestResult.outcome === 'Modified or Unregistered File' ? (
                   <ShieldAlert className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                 ) : (
                   <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -190,38 +181,62 @@ export const VerificationModule: React.FC = () => {
 
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-                  <dt className="text-slate-500 dark:text-slate-400">Inspected Artifact</dt>
+                  <dt className="text-slate-500 dark:text-slate-400">Checked File</dt>
                   <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100 truncate">
                     {latestResult.fileName}
                   </dd>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-                  <dt className="text-slate-500 dark:text-slate-400">Attributed Recipient</dt>
+                  <dt className="text-slate-500 dark:text-slate-400">Original Document Details</dt>
                   <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100 truncate">
-                    {latestResult.matchedRecipientName
+                    {latestResult.matchedDocumentTitle
+                      ? `${latestResult.matchedDocumentTitle}${
+                          latestResult.matchedDocumentId
+                            ? ` (DOC-${latestResult.matchedDocumentId.slice(0, 8).toUpperCase()})`
+                            : ''
+                        }`
+                      : 'None (Unregistered)'}
+                  </dd>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <dt className="text-slate-500 dark:text-slate-400">Associated Recipient</dt>
+                  <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100 truncate">
+                    {latestResult.outcome === 'Watermarked Copy Match' && latestResult.matchedRecipientName
                       ? `${latestResult.matchedRecipientName} (${latestResult.matchedRecipientEmail})`
-                      : 'None (Master or Unregistered)'}
+                      : 'No recipient attribution'}
                   </dd>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-                  <dt className="text-slate-500 dark:text-slate-400">Matched Document</dt>
-                  <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100 truncate">
-                    {latestResult.matchedDocumentTitle || 'No matching master document'}
-                  </dd>
-                </div>
-
-                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-                  <dt className="text-slate-500 dark:text-slate-400">Watermark ID / Metadata</dt>
+                  <dt className="text-slate-500 dark:text-slate-400">Recipient ID &amp; Tracking ID</dt>
                   <dd className="mt-1 font-mono text-violet-700 dark:text-violet-400 truncate">
-                    {latestResult.matchedWatermarkCode || latestResult.embeddedAttribution || '—'}
+                    {latestResult.outcome === 'Watermarked Copy Match' && latestResult.matchedWatermarkCode
+                      ? `${latestResult.matchedRecipientCode || '—'} · ${latestResult.matchedWatermarkCode}`
+                      : '—'}
+                  </dd>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <dt className="text-slate-500 dark:text-slate-400">Issue Date</dt>
+                  <dd className="mt-1 font-mono text-slate-900 dark:text-slate-100">
+                    {latestResult.outcome === 'Watermarked Copy Match' && latestResult.matchedIssueDate
+                      ? latestResult.matchedIssueDate
+                      : '—'}
+                  </dd>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <dt className="text-slate-500 dark:text-slate-400">Verified At</dt>
+                  <dd className="mt-1 font-mono text-slate-900 dark:text-slate-100">
+                    {new Date(latestResult.verifiedAt).toLocaleString()}
                   </dd>
                 </div>
 
                 <div className="sm:col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 p-3 flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <dt className="text-slate-500 dark:text-slate-400">Computed SHA-256 Digest</dt>
+                    <dt className="text-slate-500 dark:text-slate-400">Computed SHA-256 Fingerprint</dt>
                     <dd className="mt-1 font-mono text-cyan-700 dark:text-cyan-400 break-all">
                       {latestResult.computedSha256}
                     </dd>
@@ -236,46 +251,65 @@ export const VerificationModule: React.FC = () => {
 
       {/* Verification History */}
       <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-3">
-        Verification Audit History ({state.verificationRecords.length})
+        Verification History ({state.verificationRecords.length})
       </h2>
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              <th className="py-2.5 px-4">File / Lookup</th>
-              <th className="py-2.5 px-4">Outcome</th>
-              <th className="py-2.5 px-4">Recipient Attribution</th>
-              <th className="py-2.5 px-4">SHA-256</th>
-              <th className="py-2.5 px-4 text-right">Verified At</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-            {state.verificationRecords.map((rec) => (
-              <tr
-                key={rec.id}
-                onClick={() => setLatestResult(rec)}
-                className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              >
-                <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">
-                  {rec.fileName}
-                </td>
-                <td className="py-3 px-4">
-                  <StatusLabel status={rec.outcome} />
-                </td>
-                <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
-                  {rec.matchedRecipientEmail || '—'}
-                </td>
-                <td className="py-3 px-4 font-mono tabular-nums text-slate-500">
-                  {rec.computedSha256.slice(0, 14)}…
-                </td>
-                <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-500 whitespace-nowrap">
-                  {new Date(rec.verifiedAt).toLocaleString()}
-                </td>
+      {state.verificationRecords.length === 0 ? (
+        <EmptyState
+          icon={<FileSearch className="h-5 w-5" />}
+          title="No verification history available"
+          description="Verification checks you run will be saved here for audit tracking."
+        />
+      ) : (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                <th className="py-2.5 px-4">File / Lookup</th>
+                <th className="py-2.5 px-4">Outcome</th>
+                <th className="py-2.5 px-4">Recipient Attribution</th>
+                <th className="py-2.5 px-4">SHA-256</th>
+                <th className="py-2.5 px-4 text-right">Verified At</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
+              {state.verificationRecords.map((rec) => (
+                <tr
+                  key={rec.id}
+                  onClick={() => setLatestResult(rec)}
+                  className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                >
+                  <td className={`${rowPad} font-medium text-slate-900 dark:text-slate-100`}>
+                    {rec.fileName}
+                  </td>
+                  <td className={rowPad}>
+                    <StatusLabel
+                      status={rec.outcome}
+                      tone={
+                        rec.outcome === 'Modified or Unregistered File'
+                          ? 'error'
+                          : rec.outcome === 'Watermarked Copy Match'
+                            ? 'success'
+                            : 'info'
+                      }
+                    />
+                  </td>
+                  <td className={`${rowPad} text-slate-600 dark:text-slate-300`}>
+                    {rec.outcome === 'Watermarked Copy Match' && rec.matchedRecipientName
+                      ? `${rec.matchedRecipientName} (${rec.matchedRecipientCode || rec.matchedWatermarkCode})`
+                      : '—'}
+                  </td>
+                  <td className={`${rowPad} font-mono tabular-nums text-slate-500`}>
+                    {rec.computedSha256.slice(0, 14)}…
+                  </td>
+                  <td className={`${rowPad} text-right font-mono tabular-nums text-slate-500 whitespace-nowrap`}>
+                    {new Date(rec.verifiedAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

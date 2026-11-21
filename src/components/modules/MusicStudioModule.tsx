@@ -1,12 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  AlertCircle,
   CloudRain,
   Compass,
   Disc,
-  Download,
-  ImagePlus,
-  Loader2,
   Music,
   Pause,
   Play,
@@ -15,11 +11,8 @@ import {
   Trees,
   Volume2,
   VolumeX,
-  Wand2,
   Waves,
-  X,
 } from 'lucide-react';
-import { useSystem } from '../../context/SystemContext';
 import { AMBIENT_TRACKS, ambientBgm, type SoundscapeKind } from '../../utils/ambientBgm';
 import { AmbientAudioVisualizer } from '../ui/AmbientVisualLayer';
 import { ModulePageHeader } from '../ui/CommonUI';
@@ -33,37 +26,8 @@ const TRACK_ICONS: Record<SoundscapeKind, React.ComponentType<{ className?: stri
   'deep-focus': Sparkles,
 };
 
-interface GeneratedLyriaTrack {
-  id: string;
-  prompt: string;
-  model: 'lyria-3-clip-preview' | 'lyria-3-pro-preview';
-  audioDataUrl: string;
-  lyrics: string;
-  createdAt: string;
-}
-
-const STARTER_PROMPTS = [
-  'Warm lo-fi Rhodes chords with soft vinyl texture and calm late-night bass, 74 BPM',
-  'Cinematic ambient synth pad with gentle piano arpeggios for deep software engineering focus',
-  'Acoustic nylon guitar fingerpicking with subtle rain atmosphere and warm cello',
-  'Minimalist downtempo electronic pulse with crystalline marimba and airy pads',
-];
-
 export const MusicStudioModule: React.FC = () => {
   const [engineState, setEngineState] = useState(() => ambientBgm.getState());
-  const [lyriaMode, setLyriaMode] = useState<'clip' | 'pro'>('clip');
-  const [prompt, setPrompt] = useState(STARTER_PROMPTS[0]);
-  const [refImage, setRefImage] = useState<{
-    name: string;
-    base64: string;
-    mimeType: string;
-    previewUrl: string;
-  } | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
-  const [generatedTracks, setGeneratedTracks] = useState<GeneratedLyriaTrack[]>([]);
-  const [activeGeneratedId, setActiveGeneratedId] = useState<string | null>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEngineState(ambientBgm.getState());
@@ -91,80 +55,11 @@ export const MusicStudioModule: React.FC = () => {
     }
   };
 
-  const handleImagePick = (file?: File) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setGenError('Please choose a valid PNG, JPG, or WebP image file.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '');
-      const commaIdx = dataUrl.indexOf(',');
-      if (commaIdx === -1) return;
-      setRefImage({
-        name: file.name,
-        base64: dataUrl.slice(commaIdx + 1),
-        mimeType: file.type || 'image/jpeg',
-        previewUrl: dataUrl,
-      });
-      setGenError(null);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleGenerateMusic = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
-    setIsGenerating(true);
-    setGenError(null);
-
-    try {
-      const res = await fetch('/api/music/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          mode: lyriaMode,
-          imageBase64: refImage?.base64,
-          imageMimeType: refImage?.mimeType,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setGenError(data.error || `Music generation failed (HTTP ${res.status}).`);
-        return;
-      }
-
-      const item: GeneratedLyriaTrack = {
-        id: `lyria-${Date.now()}`,
-        prompt: prompt.trim(),
-        model: data.model,
-        audioDataUrl: data.audioDataUrl,
-        lyrics: data.lyrics || '',
-        createdAt: new Date().toISOString(),
-      };
-      setGeneratedTracks((prev) => [item, ...prev]);
-      setActiveGeneratedId(item.id);
-    } catch (err) {
-      setGenError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to reach the server-side music generation endpoint.'
-      );
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const activeGenerated =
-    generatedTracks.find((t) => t.id === activeGeneratedId) || generatedTracks[0] || null;
-
   return (
     <div className="space-y-6">
       <ModulePageHeader
-        title="Ambient & AI Music Studio"
-        description="Compose custom music with Lyria (lyria-3-clip-preview & lyria-3-pro-preview) or play six original, copyright-free soundscapes synthesized locally with Web Audio API."
+        title="Ambient Music"
+        description="Six original soundscapes synthesized locally using Web Audio API. Music stays off by default until you press Play."
         actions={
           <button
             type="button"
@@ -181,164 +76,7 @@ export const MusicStudioModule: React.FC = () => {
         }
       />
 
-      {/* Lyria AI Music Generation Studio */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              <Wand2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-              <span>AI Music Generator (Lyria)</span>
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Server-side MP3 generation via <code className="font-mono">lyria-3-clip-preview</code> (up to 30s) or{' '}
-              <code className="font-mono">lyria-3-pro-preview</code> (full-length tracks). Requires a paid Gemini API key in Settings &gt; Secrets.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 p-1">
-            <button
-              type="button"
-              onClick={() => setLyriaMode('clip')}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                lyriaMode === 'clip'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Lyria Clip (30s)
-            </button>
-            <button
-              type="button"
-              onClick={() => setLyriaMode('pro')}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                lyriaMode === 'pro'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Lyria Pro (Full Track)
-            </button>
-          </div>
-        </div>
-
-        <form onSubmit={(e) => void handleGenerateMusic(e)} className="space-y-3">
-          <div>
-            <label htmlFor="lyria-prompt" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Music Prompt (genre, mood, instruments, tempo, optional lyrics)
-            </label>
-            <textarea
-              id="lyria-prompt"
-              rows={2}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe the track you want Lyria to compose…"
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-cyan-500 focus:outline-none"
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {STARTER_PROMPTS.map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setPrompt(preset)}
-                className="rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 px-2.5 py-1 text-[11px] text-slate-600 dark:text-slate-300 hover:border-cyan-500/50 transition-colors text-left"
-              >
-                {preset.slice(0, 48)}…
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <div className="flex items-center gap-2">
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={(e) => handleImagePick(e.target.files?.[0])}
-              />
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                <ImagePlus className="h-3.5 w-3.5" />
-                <span>{refImage ? `Image: ${refImage.name}` : 'Optional Inspiration Image'}</span>
-              </button>
-              {refImage && (
-                <button
-                  type="button"
-                  onClick={() => setRefImage(null)}
-                  aria-label="Remove reference image"
-                  className="rounded-md p-1 text-slate-400 hover:text-rose-500"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={isGenerating || !prompt.trim()}
-              className="inline-flex items-center gap-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 px-4 py-2 text-xs font-semibold text-white transition-colors whitespace-nowrap"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Generating with {lyriaMode === 'pro' ? 'Lyria Pro' : 'Lyria Clip'}…</span>
-                </>
-              ) : (
-                <>
-                  <Wand2 className="h-3.5 w-3.5" />
-                  <span>Generate Music</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-
-        {genError && (
-          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3.5 flex items-start gap-2.5 text-xs text-rose-700 dark:text-rose-300">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">Lyria Music Generation Unavailable</p>
-              <p className="mt-0.5 leading-relaxed">{genError}</p>
-            </div>
-          </div>
-        )}
-
-        {activeGenerated && (
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                  {activeGenerated.prompt}
-                </p>
-                <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                  {activeGenerated.model} · {new Date(activeGenerated.createdAt).toLocaleTimeString()}
-                </p>
-              </div>
-              <a
-                href={activeGenerated.audioDataUrl}
-                download={`${activeGenerated.id}.mp3`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>Download MP3</span>
-              </a>
-            </div>
-            <audio controls src={activeGenerated.audioDataUrl} className="w-full" />
-            {activeGenerated.lyrics && (
-              <pre className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 max-h-40 overflow-y-auto">
-                {activeGenerated.lyrics}
-              </pre>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Built-In Web Audio Master Deck + Visualizer */}
+      {/* Master Deck & Audio Visualizer */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/75 p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -357,7 +95,7 @@ export const MusicStudioModule: React.FC = () => {
                   ? engineState.isMuted
                     ? 'Active (Muted)'
                     : `Playing · ${engineState.track.tempoLabel}`
-                  : 'Standby · Built-in offline synth · Off by default'}
+                  : 'Standby · Off by default'}
               </p>
             </div>
           </div>
@@ -390,7 +128,7 @@ export const MusicStudioModule: React.FC = () => {
               }`}
             >
               <Repeat className="h-3.5 w-3.5" />
-              <span>Looping: {engineState.isLooping ? 'Continuous' : '8-Bar Cycle'}</span>
+              <span>Loop: {engineState.isLooping ? 'Continuous' : '8-Bar Cycle'}</span>
             </button>
 
             <div className="flex items-center gap-2 min-w-44">
